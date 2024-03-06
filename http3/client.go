@@ -8,6 +8,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/http/httptrace"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -273,13 +274,23 @@ func (c *client) RoundTripOpt(req *http.Request, opt RoundTripOpt) (*http.Respon
 }
 
 func (c *client) roundTripOpt(req *http.Request, opt RoundTripOpt) (*http.Response, error) {
+	trace := httptrace.ContextClientTrace(req.Context())
 	if authorityAddr("https", hostnameFromRequest(req)) != c.hostname {
 		return nil, fmt.Errorf("http3 client BUG: RoundTripOpt called for the wrong client (expected %s, got %s)", c.hostname, req.Host)
 	}
 
+	if trace != nil && trace.ConnectStart != nil {
+		trace.ConnectStart("", "")
+	}
 	c.dialOnce.Do(func() {
 		c.handshakeErr = c.dial(req.Context())
 	})
+	if trace != nil && trace.ConnectDone != nil {
+		trace.ConnectDone("", "", nil)
+	}
+	if trace != nil && trace.TLSHandshakeStart != nil {
+		trace.TLSHandshakeStart()
+	}
 	if c.handshakeErr != nil {
 		return nil, c.handshakeErr
 	}
@@ -297,6 +308,9 @@ func (c *client) roundTripOpt(req *http.Request, opt RoundTripOpt) (*http.Respon
 		case <-req.Context().Done():
 			return nil, req.Context().Err()
 		}
+	}
+	if trace != nil && trace.TLSHandshakeDone != nil {
+		trace.TLSHandshakeDone(tls.ConnectionState{}, nil)
 	}
 
 	str, err := conn.OpenStreamSync(req.Context())
@@ -324,6 +338,10 @@ func (c *client) roundTripOpt(req *http.Request, opt RoundTripOpt) (*http.Respon
 		doneChan = nil
 	}
 	rsp, rerr := c.doRequest(req, conn, str, opt, doneChan)
+	if trace != nil && trace.GotFirstResponseByte != nil {
+		trace.GotFirstResponseByte()
+	}
+
 	if rerr.err != nil { // if any error occurred
 		close(reqDone)
 		<-done
