@@ -282,14 +282,14 @@ func (c *client) roundTripOpt(req *http.Request, opt RoundTripOpt) (*http.Respon
 	if trace != nil && trace.ConnectStart != nil {
 		trace.ConnectStart("", "")
 	}
+	if trace != nil && trace.TLSHandshakeStart != nil {
+		trace.TLSHandshakeStart()
+	}
 	c.dialOnce.Do(func() {
 		c.handshakeErr = c.dial(req.Context())
 	})
 	if trace != nil && trace.ConnectDone != nil {
 		trace.ConnectDone("", "", nil)
-	}
-	if trace != nil && trace.TLSHandshakeStart != nil {
-		trace.TLSHandshakeStart()
 	}
 	if c.handshakeErr != nil {
 		return nil, c.handshakeErr
